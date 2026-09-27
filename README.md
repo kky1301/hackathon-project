@@ -7,6 +7,9 @@
 - 카테고리별 학생 혜택 탐색, 상세 이용 방법, 공식 사이트 연결 및 LocalStorage 북마크
 - 7단계 신입생 생존 체크리스트와 진행률 표시
 - 국립순천대학교 공식 학사일정 API 프록시 연동 및 D-Day 자동 계산
+- 공식 일반공지·장학·학사 게시판에서 신입생 추천 신청·활동 실시간 수집
+- 모집·장학·상담·진로·비교과 키워드 추천과 신청일 자동 추출
+- 추천 마감일을 D-Day 일정에 병합하고 공식 공지로 바로 이동
 - 공식 일정 연결 실패 시 캐시·기본 일정 폴백과 수동 새로고침
 - 혜택·가이드·FAQ 통합 검색과 빈 결과 처리
 - 카카오톡 지갑 톡학생증 발급 방법 및 공식 안내 연결
@@ -28,6 +31,7 @@
   - `?page=calendar` — 공식 학사 일정, D-Day, 알림 설정
   - `?page=saved` — 북마크, 프로필, 학교 포털 바로가기, 공유 QR
 - `/api/scnu/calendar` — 국립순천대학교 공개 학사일정 정규화 API
+- `/api/scnu/recommendations` — 공식 게시판 기반 신입생 추천 공지 API
 - `/manifest.webmanifest` — PWA 앱 매니페스트
 - `/sw.js` — 오프라인 캐시 및 알림 클릭 처리 서비스 워커
 
@@ -35,11 +39,13 @@
 
 - 혜택, 체크리스트, FAQ: 앱 내 샘플 데이터
 - 학사 일정: 국립순천대학교 학사안내 공개 JSON 엔드포인트를 Hono API가 정규화
+- 추천 정보: 일반공지·장학·학사 게시판의 최근 공지를 분석하고 종료된 신청은 제외
 - `unistarter-saved`: 저장한 혜택 ID 배열
 - `unistarter-tasks`: 완료한 체크리스트 ID 배열
 - `unistarter-profile`: 대학교 및 전공 설정
 - `unistarter-theme`: 선택한 테마
 - `unistarter-calendar-cache`: 최근 동기화된 공식 일정
+- `unistarter-recommendations-cache`: 최근 동기화된 신입생 추천 공지
 - `unistarter-reminder`: 알림 사용 여부, 알림 시점, 마지막 알림 기록
 - 외부 데이터베이스나 개인정보 서버 전송 없음
 
@@ -71,4 +77,4 @@ pm2 start ecosystem.config.cjs
 2. Cloudflare D1 기반 계정 동기화 도입
 3. Web Push 구독 기반 백그라운드 알림 추가
 
-마지막 업데이트: 2026-09-21
+마지막 업데이트: 2026-09-27

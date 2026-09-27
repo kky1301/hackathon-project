@@ -1,4 +1,4 @@
-const CACHE_NAME = 'unistarter-v2'
+const CACHE_NAME = 'unistarter-v3'
 const APP_SHELL = ['/', '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png']
 
 self.addEventListener('install', (event) => {
@@ -17,7 +17,7 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return
   const url = new URL(event.request.url)
 
-  if (url.pathname === '/api/scnu/calendar') {
+  if (url.pathname === '/api/scnu/calendar' || url.pathname === '/api/scnu/recommendations') {
     event.respondWith(
       fetch(event.request).then((response) => {
         const copy = response.clone()

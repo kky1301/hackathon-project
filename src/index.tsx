@@ -3,6 +3,91 @@ import { Hono } from 'hono'
 const app = new Hono()
 
 const SCNU_CALENDAR_ENDPOINT = 'https://www.scnu.ac.kr/haksa/sv/schdulView/selectSvList.do'
+const SCNU_ORIGIN = 'https://www.scnu.ac.kr'
+const SCNU_RECOMMENDATION_BOARDS = [
+  { name: '일반공지', url: `${SCNU_ORIGIN}/SCNU/na/ntt/selectNttList.do?mi=1131&bbsId=1040` },
+  { name: '장학', url: `${SCNU_ORIGIN}/SCNU/na/ntt/selectNttList.do?mi=8690&bbsId=4487` },
+  { name: '학사', url: `${SCNU_ORIGIN}/SCNU/na/ntt/selectNttList.do?mi=1132&bbsId=1041` }
+]
+
+const decodeBoardText = (value: string) => value
+  .replace(/<[^>]*>/g, ' ')
+  .replace(/&nbsp;|&#160;/g, ' ')
+  .replace(/&amp;/g, '&')
+  .replace(/&lt;/g, '<')
+  .replace(/&gt;/g, '>')
+  .replace(/&quot;|&#34;/g, '"')
+  .replace(/&#39;|&apos;/g, "'")
+  .replace(/\s+/g, ' ')
+  .trim()
+
+const recommendationScore = (title: string, board: string) => {
+  if (/대학원생/.test(title) && !/학부생/.test(title)) return -99
+  let score = 0
+  if (/신입생|1학년|새내기/.test(title)) score += 8
+  if (/학부생|재학생|학생/.test(title)) score += 3
+  if (/신청|모집|참여자|교육생|접수/.test(title)) score += 3
+  if (/장학|국가근로|생활비|주거안정/.test(title)) score += 3
+  if (/멘토링|튜터링|스터디|상담|특강|체험|박람회|공모전|봉사|동아리|진로/.test(title)) score += 2
+  if (board === '장학') score += 2
+  if (/수상자 발표|예선 결과|선정 결과|지급 안내|폐강|졸업|조기취업|일시적 제한|재이수|추가등록|휴학/.test(title)) score -= 10
+  return score
+}
+
+const recommendationReason = (title: string, board: string) => {
+  if (/신입생|1학년|새내기/.test(title)) return '신입생 맞춤 추천'
+  if (/장학|국가근로|생활비|주거안정/.test(title) || board === '장학') return '1학년부터 챙기기 좋은 장학 정보'
+  if (/진로|박람회|취업|JOB/.test(title)) return '진로 탐색에 유용한 프로그램'
+  if (/상담/.test(title)) return '학교생활 적응에 도움 되는 상담'
+  if (/특강|교육|체험|멘토링|튜터링|스터디/.test(title)) return '경험을 넓히는 비교과 활동'
+  return '신청 기간을 확인해 볼 추천 공지'
+}
+
+const extractUpcomingDate = (html: string, published: string) => {
+  const body = html.match(/id="imgAlt"[^>]*>([\s\S]*?)<\/td>/i)?.[1] ?? html
+  const text = decodeBoardText(body)
+  const year = Number(published.slice(0, 4))
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const dates: Date[] = []
+  const addDate = (dateYear: number, month: number, day: number) => {
+    const date = new Date(dateYear, month - 1, day)
+    if (date.getFullYear() === dateYear && date.getMonth() === month - 1 && date.getDate() === day && date >= today) dates.push(date)
+  }
+  for (const match of text.matchAll(/(20\d{2})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*\.?\s*(?:일)?/g)) {
+    addDate(Number(match[1]), Number(match[2]), Number(match[3]))
+  }
+  for (const match of text.matchAll(/(?:^|[^\d])(\d{1,2})\s*[.\-/월]\s*(\d{1,2})\s*\.?\s*(?:일)?/g)) {
+    const month = Number(match[1]), day = Number(match[2])
+    if (month >= 1 && month <= 12) addDate(year, month, day)
+  }
+  dates.sort((a, b) => a.getTime() - b.getTime())
+  return dates[0]?.toISOString().slice(0, 10) ?? ''
+}
+
+const parseRecommendationBoard = (html: string, board: string) => {
+  const notices: Array<Record<string, string | number>> = []
+  for (const match of html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const row = match[1]
+    const link = row.match(/href="([^"]*selectNttInfo\.do\?nttSn=(\d+)[^"]*)"[^>]*>([\s\S]*?)<\/a>/i)
+    const date = row.match(/<td[^>]*>\s*(20\d{2}\.\d{2}\.\d{2})\s*<\/td>/i)
+    if (!link || !date) continue
+    const title = decodeBoardText(link[3])
+    const score = recommendationScore(title, board)
+    if (score < 3) continue
+    const href = link[1].replace(/&amp;/g, '&')
+    notices.push({
+      id: link[2],
+      title,
+      board,
+      published: date[1].replaceAll('.', '-'),
+      url: new URL(href, SCNU_ORIGIN).toString(),
+      reason: recommendationReason(title, board),
+      score
+    })
+  }
+  return notices
+}
 
 app.get('/api/scnu/calendar', async (c) => {
   try {
@@ -41,6 +126,56 @@ app.get('/api/scnu/calendar', async (c) => {
   }
 })
 
+app.get('/api/scnu/recommendations', async (c) => {
+  try {
+    const results = await Promise.allSettled(SCNU_RECOMMENDATION_BOARDS.map(async (board) => {
+      const response = await fetch(board.url, { headers: { 'User-Agent': 'UniStarter/1.0 (+https://www.scnu.ac.kr)' } })
+      if (!response.ok) throw new Error(`${board.name} board responded ${response.status}`)
+      return parseRecommendationBoard(await response.text(), board.name)
+    }))
+    const now = Date.now()
+    const day = 1000 * 60 * 60 * 24
+    const candidates = results
+      .flatMap((result) => result.status === 'fulfilled' ? result.value : [])
+      .filter((item) => {
+        const published = new Date(`${item.published}T00:00:00`).getTime()
+        return Number.isFinite(published) && now - published <= day * 60
+      })
+      .sort((a, b) => Number(b.score) - Number(a.score) || String(b.published).localeCompare(String(a.published)))
+      .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index)
+      .slice(0, 16)
+
+    const detailed = await Promise.allSettled(candidates.map(async (item) => {
+      const response = await fetch(String(item.url), { headers: { 'User-Agent': 'UniStarter/1.0 (+https://www.scnu.ac.kr)' } })
+      if (!response.ok) throw new Error(`notice ${item.id} responded ${response.status}`)
+      const deadline = extractUpcomingDate(await response.text(), String(item.published))
+      return { ...item, deadline }
+    }))
+
+    const recommendations = detailed
+      .map((result, index) => result.status === 'fulfilled' ? result.value : { ...candidates[index], deadline: '' })
+      .filter((item) => item.deadline || now - new Date(`${item.published}T00:00:00`).getTime() <= day * 14)
+      .sort((a, b) => {
+        if (a.deadline && b.deadline) return String(a.deadline).localeCompare(String(b.deadline))
+        if (a.deadline) return -1
+        if (b.deadline) return 1
+        return Number(b.score) - Number(a.score)
+      })
+      .slice(0, 8)
+      .map(({ score: _score, ...item }) => item)
+
+    return c.json({
+      source: '국립순천대학교 공식 홈페이지',
+      sourceUrl: `${SCNU_ORIGIN}/SCNU/main.do`,
+      syncedAt: new Date().toISOString(),
+      recommendations
+    }, 200, { 'Cache-Control': 'public, max-age=1800, stale-while-revalidate=21600' })
+  } catch (error) {
+    console.error('SCNU recommendation sync failed', error)
+    return c.json({ error: '추천 공지를 불러오지 못했습니다.', recommendations: [] }, 502)
+  }
+})
+
 app.get('*', (c) => c.html(`<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -75,7 +210,7 @@ app.get('*', (c) => c.html(`<!DOCTYPE html>
     .benefit-grid{display:grid;grid-template-columns:1fr;gap:11px}.benefit-card{position:relative;display:grid;grid-template-columns:52px 1fr 38px;gap:12px;align-items:center;padding:16px;background:var(--card);border:1px solid var(--line);border-radius:20px;transition:.22s}.benefit-card:hover{transform:translateY(-3px);box-shadow:var(--shadow);border-color:#cad3ff}.benefit-logo{width:52px;height:52px;border-radius:15px;display:grid;place-items:center;font-weight:800;font-size:18px}.benefit-card h3{font-size:15px;margin:0 0 5px;letter-spacing:-.2px}.benefit-card p{font-size:12px;color:var(--muted);margin:0;line-height:1.45}.badge{display:inline-flex;align-items:center;padding:4px 8px;margin-top:8px;border-radius:99px;background:#e9fbf5;color:#087d59;font-size:10px;font-weight:800}.dark .badge{background:#153c35;color:#62dcb7}.save-btn{width:38px;height:38px;border:0;border-radius:12px;background:var(--bg);color:var(--muted);display:grid;place-items:center;transition:.2s}.save-btn.saved{background:#fff0e6;color:#ef7c24}.save-btn.saved svg{fill:currentColor}.save-btn:active{transform:scale(.88)}
     .progress-card{background:var(--card);border:1px solid var(--line);border-radius:22px;padding:19px}.progress-top{display:flex;justify-content:space-between;align-items:center}.progress-ring{width:54px;height:54px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--mint) var(--progress),var(--line) 0);position:relative}.progress-ring:after{content:"";position:absolute;inset:6px;background:var(--card);border-radius:50%}.progress-ring b{position:relative;z-index:1;font-size:12px}.progress-track{height:7px;background:var(--line);border-radius:99px;margin-top:16px;overflow:hidden}.progress-fill{height:100%;background:linear-gradient(90deg,var(--mint),#49d8aa);border-radius:inherit;transition:width .45s cubic-bezier(.2,.9,.3,1)}
     .check-list{display:grid;gap:10px}.check-card{display:grid;grid-template-columns:42px 1fr auto;gap:12px;align-items:center;padding:15px;background:var(--card);border:1px solid var(--line);border-radius:18px;transition:.2s}.check-card.done{opacity:.68}.check-card.done h3{text-decoration:line-through}.check-icon{width:42px;height:42px;border-radius:13px;background:var(--soft);color:var(--primary);display:grid;place-items:center}.check-card h3{font-size:14px;margin:0 0 3px}.check-card p{font-size:11px;color:var(--muted);margin:0}.check-toggle{width:25px;height:25px;border:2px solid #cbd1de;border-radius:8px;background:transparent;display:grid;place-items:center;color:#fff}.check-card.done .check-toggle{border-color:var(--mint);background:var(--mint);animation:pop .3s ease}@keyframes pop{50%{transform:scale(1.22)}}
-    .dday-hero{background:linear-gradient(145deg,#161f38,#293653);color:white;border-radius:25px;padding:23px;position:relative;overflow:hidden}.dday-hero:after{content:"";position:absolute;width:130px;height:130px;border:30px solid rgba(255,255,255,.05);border-radius:50%;right:-45px;top:-35px}.dday-big{font-size:35px;font-weight:800;margin:18px 0 3px;letter-spacing:-1px}.dday-list{display:grid;gap:10px;margin-top:13px}.dday-row{display:flex;align-items:center;gap:13px;padding:15px;background:var(--card);border:1px solid var(--line);border-radius:17px}.date-box{width:44px;text-align:center;color:var(--primary)}.date-box b{display:block;font-size:18px}.date-box span{font-size:10px;font-weight:700}.dday-info{flex:1}.dday-info b{font-size:14px}.dday-info p{font-size:11px;color:var(--muted);margin:3px 0 0}.d-pill{font-size:11px;font-weight:800;color:var(--primary);background:var(--soft);padding:6px 9px;border-radius:9px}
+    .dday-hero{background:linear-gradient(145deg,#161f38,#293653);color:white;border-radius:25px;padding:23px;position:relative;overflow:hidden}.dday-hero:after{content:"";position:absolute;width:130px;height:130px;border:30px solid rgba(255,255,255,.05);border-radius:50%;right:-45px;top:-35px}.dday-big{font-size:35px;font-weight:800;margin:18px 0 3px;letter-spacing:-1px}.dday-list{display:grid;gap:10px;margin-top:13px}.dday-row{display:flex;align-items:center;gap:13px;padding:15px;background:var(--card);border:1px solid var(--line);border-radius:17px}.dday-row-link{color:inherit;text-decoration:none;transition:.2s}.dday-row-link:hover{border-color:#bdc9ff;transform:translateY(-2px)}.date-box{width:44px;text-align:center;color:var(--primary)}.date-box b{display:block;font-size:18px}.date-box span{font-size:10px;font-weight:700}.dday-info{flex:1}.dday-info b{font-size:14px}.dday-info p{font-size:11px;color:var(--muted);margin:3px 0 0}.d-pill{font-size:11px;font-weight:800;color:var(--primary);background:var(--soft);padding:6px 9px;border-radius:9px}.recommend-list{display:grid;gap:10px}.recommend-card{display:grid;grid-template-columns:40px 1fr auto;align-items:center;gap:12px;padding:14px;background:var(--card);border:1px solid var(--line);border-radius:17px;color:var(--ink);text-decoration:none;transition:.2s}.recommend-card:hover{transform:translateY(-2px);border-color:#bdc9ff;box-shadow:var(--shadow)}.recommend-icon{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#e8f8f2,#e9eeff);color:var(--mint);display:grid;place-items:center}.dark .recommend-icon{background:#1d3840}.recommend-card h3{font-size:13px;line-height:1.4;margin:0 0 4px}.recommend-meta{display:flex;gap:6px;align-items:center;flex-wrap:wrap;color:var(--muted);font-size:10px}.recommend-reason{color:#087d59;background:#e9fbf5;padding:3px 6px;border-radius:7px;font-weight:700}.dark .recommend-reason{color:#6ee7be;background:#153c35}.live-badge{display:inline-flex;align-items:center;gap:5px;color:#087d59;background:#e9fbf5;padding:5px 8px;border-radius:999px;font-size:10px;font-weight:800}.live-badge:before{content:"";width:6px;height:6px;border-radius:50%;background:var(--mint)}
     .faq{border:1px solid var(--line);background:var(--card);border-radius:17px;overflow:hidden;margin-bottom:9px}.faq-q{width:100%;display:flex;align-items:center;gap:10px;text-align:left;border:0;background:none;color:var(--ink);padding:16px;font-weight:700;font-size:13px}.faq-q span{flex:1}.faq-a{display:none;padding:0 16px 16px 48px;color:var(--muted);font-size:12px;line-height:1.65}.faq.open .faq-a{display:block}.faq.open .chev{transform:rotate(180deg)}.chev{transition:.2s}
     .profile-card{background:linear-gradient(135deg,var(--card),var(--soft));border:1px solid var(--line);border-radius:24px;padding:20px}.profile-row{display:flex;align-items:center;gap:13px}.avatar{width:54px;height:54px;border-radius:18px;background:linear-gradient(135deg,#84a5ff,#7455ec);color:#fff;display:grid;place-items:center}.profile-row h2{font-size:17px;margin:0 0 4px}.profile-row p{font-size:12px;color:var(--muted);margin:0}.select-row{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:17px}.select-row select{width:100%;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:11px;border-radius:12px;font-size:12px;outline:none}.empty{padding:42px 20px;text-align:center;color:var(--muted);background:var(--card);border:1px dashed var(--line);border-radius:20px}.empty-icon{width:52px;height:52px;margin:0 auto 12px;border-radius:16px;display:grid;place-items:center;background:var(--soft);color:var(--primary)}
     .bottom-nav{position:fixed;z-index:50;bottom:0;left:0;right:0;display:grid;grid-template-columns:repeat(4,1fr);background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(18px);border-top:1px solid var(--line);padding:8px 8px calc(8px + env(safe-area-inset-bottom))}.nav-btn{border:0;background:none;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;padding:5px;font-size:10px;font-weight:700}.nav-btn.active{color:var(--primary)}.nav-icon{position:relative}.nav-btn.active .nav-icon:after{content:"";position:absolute;width:5px;height:5px;border-radius:50%;background:var(--primary);top:-2px;right:-5px}.toast{position:fixed;z-index:100;left:50%;bottom:92px;transform:translate(-50%,25px);background:#172033;color:#fff;padding:11px 16px;border-radius:12px;font-size:12px;font-weight:700;opacity:0;pointer-events:none;transition:.25s;box-shadow:0 12px 30px rgba(0,0,0,.22)}.toast.show{opacity:1;transform:translate(-50%,0)}
@@ -149,6 +284,7 @@ app.get('*', (c) => c.html(`<!DOCTYPE html>
         <article class="dday-hero"><div class="eyebrow"><i data-lucide="alarm-clock" size="15"></i> 가장 가까운 일정</div><div id="nextDday" class="dday-big">D-12</div><b id="nextEvent">1학기 중간고사</b><p id="nextDate" style="font-size:12px;color:#bdc8e0;margin:7px 0 0"></p></article>
         <div id="ddayList" class="dday-list"></div>
       </div>
+      <section class="section" aria-labelledby="recommend-title"><div class="section-head"><div><h2 id="recommend-title" class="section-title">1학년 추천 신청·활동</h2><p class="section-sub">학교 공식 공지에서 새내기에게 유용한 내용을 골라왔어요</p></div><span id="recommendBadge" class="live-badge">실시간</span></div><div id="recommendSync" class="sync-status" style="margin:-5px 0 12px"><span class="sync-dot loading"></span><span>추천 공지를 불러오는 중...</span></div><div id="recommendList" class="recommend-list"></div><p style="font-size:10px;color:var(--muted);line-height:1.5;margin:10px 3px 0">추천은 공지 제목의 신입생·신청·장학·상담·진로·비교과 키워드를 기준으로 제공됩니다. 반드시 공식 공지에서 대상과 마감일을 확인하세요.</p></section>
       <section class="section"><div class="section-head"><div><h2 class="section-title">나만의 D-Day</h2><p class="section-sub">기억하고 싶은 일정을 계산해 보세요</p></div></div>
         <form id="ddayForm" class="progress-card" style="display:grid;grid-template-columns:1fr 1fr auto;gap:9px;align-items:end">
           <label style="font-size:11px;color:var(--muted)">일정 이름<input id="customEvent" required placeholder="예: MT 신청" style="display:block;width:100%;margin-top:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:11px;border-radius:11px;outline:none"></label>
@@ -217,6 +353,7 @@ const fallbackEvents=[
 {id:'fallback-4',title:'제2학기 기말시험',start:'2026-12-14',end:'2026-12-18',description:'강의별 시험 및 과제 마감 확인'},
 {id:'fallback-5',title:'제2학기 종강',start:'2026-12-18',end:'2026-12-18',description:'국립순천대학교 공식 학사일정'}];
 let events=[...fallbackEvents];
+let recommendations=[];
 const genericMajors=['경영학과','컴퓨터공학과','미디어학과','심리학과','자유전공학부'];
 const scnuMajorGroups={
 '본부직속':['자유전공학부','스마트팩토리혁신학과','식품영양학과','융합바이오시스템기계공학과','간호학과','국제한국어교육학과','건축학부','글로벌인재학부-글로벌매니지먼트전공','글로벌인재학부-글로벌ICT문화예술콘텐츠전공'],
@@ -227,6 +364,7 @@ const categories=['전체',...new Set(benefits.map(x=>x.cat))];
 let activeCategory='전체';
 const store={get(k,f){try{const v=localStorage.getItem('unistarter-'+k);return v?JSON.parse(v):f}catch(e){showToast('저장 정보를 불러오지 못했어요');return f}},set(k,v){try{localStorage.setItem('unistarter-'+k,JSON.stringify(v));return true}catch(e){showToast('브라우저 저장 공간을 확인해 주세요');return false}}};
 let saved=store.get('saved',[]),done=store.get('tasks',[]),profile=store.get('profile',{university:'',major:''});
+recommendations=store.get('recommendations-cache',[]);
 const el=id=>document.getElementById(id);
 function iconRefresh(){if(window.lucide)lucide.createIcons()}
 function showToast(msg){const t=el('toast');t.textContent=msg;t.classList.add('show');clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>t.classList.remove('show'),1800)}
@@ -245,8 +383,10 @@ function toggleSave(id){saved=saved.includes(id)?saved.filter(x=>x!==id):[...sav
 function renderTasks(){el('checkList').innerHTML=tasks.map(t=>'<article class="check-card '+(done.includes(t.id)?'done':'')+'" data-guide="'+t.id+'" role="button" tabindex="0" aria-label="'+t.title+' 방법 보기"><div class="check-icon"><i data-lucide="'+t.icon+'" size="19"></i></div><div><h3>'+t.title+'</h3><p>'+t.desc+'</p><span class="guide-more">방법 보기 <i data-lucide="chevron-right" size="11"></i></span></div><button class="check-toggle" data-task="'+t.id+'" aria-label="'+t.title+' 완료"><i data-lucide="check" size="16"></i></button></article>').join('');updateProgress();iconRefresh()}
 function updateProgress(){const pct=Math.round(done.length/tasks.length*100);el('progressRing').style.setProperty('--progress',pct+'%');el('progressText').textContent=pct+'%';el('progressFill').style.width=pct+'%';el('progressMessage').textContent=pct===100?'완벽해요! 캠퍼스 생활 준비 완료':done.length+'개 완료 · '+(tasks.length-done.length)+'개 남았어요';updateStats()}
 function renderFaqs(){el('faqList').innerHTML=faqs.map((f,i)=>'<article class="faq"><button class="faq-q" data-faq="'+i+'"><span class="result-type">Q</span><span>'+f.q+'</span><i class="chev" data-lucide="chevron-down" size="17"></i></button><div class="faq-a">'+f.a+(f.url?'<br><a href="'+f.url+'" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;color:var(--primary);font-weight:700">카카오 공식 안내 보기 →</a>':'')+'</div></article>').join('');iconRefresh()}
-function renderCalendar(){const today=new Date();today.setHours(0,0,0,0);const sorted=events.map(e=>({...e,date:eventDate(e),endDate:new Date((e.end||e.start)+'T23:59:59')})).filter(e=>e.endDate>=today).sort((a,b)=>a.date-b.date).slice(0,8);if(!sorted.length){el('nextDday').textContent='—';el('nextEvent').textContent='예정된 일정이 없어요';el('nextDate').textContent='공식 학사안내에서 새 일정을 확인해 주세요';el('ddayList').innerHTML='<div class="empty"><b>다가오는 학사일정이 없습니다</b></div>';return}const first=sorted[0],d=Math.max(0,daysUntil(first.date));el('nextDday').textContent=d===0?'D-DAY':'D-'+d;el('nextEvent').textContent=first.title;el('nextDate').textContent=first.date.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});el('ddayList').innerHTML=sorted.map(e=>{const x=Math.max(0,daysUntil(e.date)),month=e.date.getMonth()+1,day=e.date.getDate(),period=e.end&&e.end!==e.start?e.start.replaceAll('-','.')+' ~ '+e.end.replaceAll('-','.'):(e.description||'국립순천대학교 공식 일정');return '<article class="dday-row"><div class="date-box"><span>'+month+'월</span><b>'+day+'</b></div><div class="dday-info"><b>'+safeText(e.title)+'</b><p>'+safeText(period)+'</p></div><span class="d-pill">'+(x===0?'D-DAY':'D-'+x)+'</span></article>'}).join('');iconRefresh()}
+function renderCalendar(){const today=new Date();today.setHours(0,0,0,0);const recommendedEvents=recommendations.filter(item=>item.deadline).map(item=>({id:'recommend-'+item.id,title:item.title,start:item.deadline,end:item.deadline,description:item.reason,url:item.url,recommended:true}));const combined=[...events,...recommendedEvents].filter((item,index,list)=>list.findIndex(candidate=>candidate.title===item.title&&candidate.start===item.start)===index);const sorted=combined.map(e=>({...e,date:eventDate(e),endDate:new Date((e.end||e.start)+'T23:59:59')})).filter(e=>e.endDate>=today).sort((a,b)=>a.date-b.date).slice(0,8);if(!sorted.length){el('nextDday').textContent='—';el('nextEvent').textContent='예정된 일정이 없어요';el('nextDate').textContent='공식 학사안내에서 새 일정을 확인해 주세요';el('ddayList').innerHTML='<div class="empty"><b>다가오는 학사일정이 없습니다</b></div>';return}const first=sorted[0],d=Math.max(0,daysUntil(first.date));el('nextDday').textContent=d===0?'D-DAY':'D-'+d;el('nextEvent').textContent=(first.recommended?'추천 · ':'')+first.title;el('nextDate').textContent=first.date.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});el('ddayList').innerHTML=sorted.map(e=>{const x=Math.max(0,daysUntil(e.date)),month=e.date.getMonth()+1,day=e.date.getDate(),period=e.end&&e.end!==e.start?e.start.replaceAll('-','.')+' ~ '+e.end.replaceAll('-','.'):(e.description||'국립순천대학교 공식 일정'),tag=e.recommended?'<span class="recommend-reason" style="margin-right:5px">추천</span>':'',open=e.url?'<a class="dday-row dday-row-link" href="'+e.url+'" target="_blank" rel="noopener">':'<article class="dday-row">',close=e.url?'</a>':'</article>';return open+'<div class="date-box"><span>'+month+'월</span><b>'+day+'</b></div><div class="dday-info"><b>'+tag+safeText(e.title)+'</b><p>'+safeText(period)+'</p></div><span class="d-pill">'+(x===0?'D-DAY':'D-'+x)+'</span>'+close}).join('');iconRefresh()}
 async function loadOfficialCalendar(force=false){const dot=el('syncDot'),text=el('syncText'),cached=store.get('calendar-cache',null);dot.className='sync-dot loading';text.textContent='국립순천대학교 공식 일정을 동기화하는 중...';if(cached&&cached.events&&!force){events=cached.events;renderCalendar()}try{const res=await fetch('/api/scnu/calendar',{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();if(!Array.isArray(data.events)||!data.events.length)throw new Error('empty calendar');events=data.events;store.set('calendar-cache',{events:events,syncedAt:data.syncedAt});renderCalendar();dot.className='sync-dot';const synced=new Date(data.syncedAt);text.textContent='공식 일정 동기화 · '+synced.toLocaleString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});checkReminders()}catch(error){console.warn('Calendar sync fallback',error);dot.className='sync-dot error';text.textContent=cached?'오프라인 캐시 일정 표시 중':'연결 실패 · 기본 일정 표시 중';renderCalendar()}}
+function renderRecommendations(){const list=el('recommendList');el('recommendBadge').textContent=recommendations.length?recommendations.length+'건 추천':'실시간';if(!recommendations.length){list.innerHTML='<div class="empty"><div class="empty-icon"><i data-lucide="radar" size="22"></i></div><b>현재 추천할 새 공지가 없어요</b><p style="font-size:12px">새 공지가 등록되면 자동으로 표시됩니다.</p></div>';renderCalendar();iconRefresh();return}list.innerHTML=recommendations.map(item=>{const timing=item.deadline?'신청·행사 '+item.deadline.replaceAll('-','.'):'최근 공지 '+item.published.replaceAll('-','.');return '<a class="recommend-card" href="'+item.url+'" target="_blank" rel="noopener"><span class="recommend-icon"><i data-lucide="'+(item.board==='장학'?'badge-dollar-sign':item.board==='학사'?'book-open-check':'sparkles')+'" size="19"></i></span><span><h3>'+safeText(item.title)+'</h3><span class="recommend-meta"><span class="recommend-reason">'+safeText(item.reason)+'</span><span>'+safeText(item.board)+' · '+safeText(timing)+'</span></span></span><i data-lucide="arrow-up-right" size="17" style="color:var(--muted)"></i></a>'}).join('');renderCalendar();iconRefresh()}
+async function loadRecommendations(force=false){const status=el('recommendSync'),cached=store.get('recommendations-cache',[]);status.innerHTML='<span class="sync-dot loading"></span><span>학교 공식 공지에서 추천 정보를 찾는 중...</span>';if(cached.length&&!force){recommendations=cached;renderRecommendations()}try{const res=await fetch('/api/scnu/recommendations',{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();recommendations=Array.isArray(data.recommendations)?data.recommendations:[];store.set('recommendations-cache',recommendations);renderRecommendations();const synced=new Date(data.syncedAt);status.innerHTML='<span class="sync-dot"></span><span>공식 홈페이지 동기화 · '+synced.toLocaleString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</span>'}catch(error){console.warn('Recommendation sync fallback',error);recommendations=cached;renderRecommendations();status.innerHTML='<span class="sync-dot error"></span><span>'+(cached.length?'저장된 추천 공지 표시 중':'추천 공지를 불러오지 못했어요')+'</span>'}}
 function renderSaved(){const list=benefits.filter(b=>saved.includes(b.id));el('savedGrid').innerHTML=list.length?list.map(card).join(''):'<div class="empty" style="grid-column:1/-1"><div class="empty-icon"><i data-lucide="bookmark" size="23"></i></div><b>아직 저장한 혜택이 없어요</b><p style="font-size:12px">혜택 카드의 북마크를 눌러 모아보세요.</p></div>';el('savedBadge').textContent=list.length+'개';iconRefresh()}
 function updateStats(){el('savedCount').textContent=saved.length;el('taskCount').textContent=done.length+'/'+tasks.length;el('mySaved').textContent=saved.length;el('myDone').textContent=done.length;el('myRate').textContent=Math.round(done.length/tasks.length*100)+'%'}
 function renderMajorOptions(){const select=el('majorSelect'),isScnu=profile.university==='순천대학교';let html='<option value="">전공 선택</option>';if(isScnu){Object.entries(scnuMajorGroups).forEach(([group,items])=>{html+='<optgroup label="'+group+'">'+items.map(item=>'<option>'+item+'</option>').join('')+'</optgroup>'})}else{html+=genericMajors.map(item=>'<option>'+item+'</option>').join('')}select.innerHTML=html;if([...select.options].some(o=>o.value===profile.major))select.value=profile.major;else{profile.major='';select.value=''}}
@@ -261,7 +401,7 @@ el('categoryFilters').addEventListener('click',()=>{});el('resetFilter').onclick
 el('globalSearch').addEventListener('input',e=>search(e.target.value));document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();el('globalSearch').focus();navigate('home')}if(e.key==='Escape')el('searchResults').classList.remove('show')});
 el('themeToggle').onclick=()=>{document.documentElement.classList.toggle('dark');const dark=document.documentElement.classList.contains('dark');try{localStorage.setItem('unistarter-theme',dark?'dark':'light')}catch(e){}el('themeToggle').innerHTML='<i data-lucide="'+(dark?'sun':'moon')+'" size="19"></i>';document.querySelector('meta[name="theme-color"]').content=dark?'#0d1321':'#f6f8fc';iconRefresh()};
 el('universitySelect').addEventListener('change',()=>{profile={university:el('universitySelect').value,major:''};if(store.set('profile',profile)){renderProfile();showToast(profile.university==='순천대학교'?'국립순천대학교 전공 목록을 불러왔어요':'학교 정보가 저장됐어요')}});el('majorSelect').addEventListener('change',()=>{profile.major=el('majorSelect').value;if(store.set('profile',profile)){renderProfile();showToast('전공 정보가 저장됐어요')}});
-el('calendarRefresh').onclick=()=>loadOfficialCalendar(true);el('downloadQr').onclick=downloadShareQr;
+el('calendarRefresh').onclick=()=>{loadOfficialCalendar(true);loadRecommendations(true)};el('downloadQr').onclick=downloadShareQr;
 el('ddayForm').addEventListener('submit',e=>{e.preventDefault();const name=el('customEvent').value,date=new Date(el('customDate').value+'T00:00:00'),d=daysUntil(date);el('customResult').innerHTML='<article class="dday-row"><div class="date-box"><i data-lucide="flag" size="20"></i></div><div class="dday-info"><b>'+name+'</b><p>'+date.toLocaleDateString('ko-KR')+'</p></div><span class="d-pill">'+(d===0?'D-DAY':d>0?'D-'+d:'D+'+Math.abs(d))+'</span></article>';iconRefresh()});
 const reminder=store.get('reminder',{enabled:false,days:3,lastSent:''});
 function renderNotificationStatus(){const supported='Notification' in window;el('reminderDays').value=String(reminder.days||3);el('notificationToggle').textContent=reminder.enabled?'알림 끄기':'알림 켜기';el('notificationStatus').textContent=!supported?'이 브라우저는 알림을 지원하지 않아요':reminder.enabled?'앱을 열면 '+reminder.days+'일 이내 일정을 알려드려요':'알림을 켜면 중요한 일정을 놓치지 않아요'}
@@ -270,7 +410,7 @@ el('notificationToggle').onclick=async()=>{if(!('Notification' in window)){showT
 el('reminderDays').onchange=()=>{reminder.days=Number(el('reminderDays').value);reminder.lastSent='';store.set('reminder',reminder);renderNotificationStatus();checkReminders()};
 let deferredInstallPrompt=null;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;el('installBanner').classList.add('show')});window.addEventListener('appinstalled',()=>{el('installBanner').classList.remove('show');showToast('UniStarter가 설치됐어요')});el('installButton').onclick=async()=>{if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;el('installBanner').classList.remove('show')}else{showToast(/iphone|ipad/i.test(navigator.userAgent)?'공유 버튼에서 홈 화면에 추가를 선택하세요':'브라우저 메뉴에서 앱 설치를 선택하세요')}};
 if('serviceWorker' in navigator)window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js').catch(e=>console.warn('Service worker registration failed',e)));
-renderCategories();renderBenefits();renderTasks();renderFaqs();renderCalendar();renderSaved();renderProfile();renderNotificationStatus();renderShareQr();updateStats();loadOfficialCalendar();
+renderCategories();renderBenefits();renderTasks();renderFaqs();renderCalendar();renderRecommendations();renderSaved();renderProfile();renderNotificationStatus();renderShareQr();updateStats();loadOfficialCalendar();loadRecommendations();
 const startupPage=new URLSearchParams(location.search).get('page');if(['home','guide','calendar','saved'].includes(startupPage))navigate(startupPage);
 const isStandalone=matchMedia('(display-mode: standalone)').matches||navigator.standalone;if(!isStandalone&&/iphone|ipad|ipod/i.test(navigator.userAgent))el('installBanner').classList.add('show');
 const isDark=document.documentElement.classList.contains('dark');el('themeToggle').innerHTML='<i data-lucide="'+(isDark?'sun':'moon')+'" size="19"></i>';iconRefresh();
