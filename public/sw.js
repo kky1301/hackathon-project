@@ -1,4 +1,4 @@
-const CACHE_NAME = 'unistarter-v3'
+const CACHE_NAME = 'unistarter-v4'
 const APP_SHELL = ['/', '/manifest.webmanifest', '/static/icon-192.png', '/static/icon-512.png']
 
 self.addEventListener('install', (event) => {

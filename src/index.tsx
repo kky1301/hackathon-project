@@ -7,7 +7,10 @@ const SCNU_ORIGIN = 'https://www.scnu.ac.kr'
 const SCNU_RECOMMENDATION_BOARDS = [
   { name: '일반공지', url: `${SCNU_ORIGIN}/SCNU/na/ntt/selectNttList.do?mi=1131&bbsId=1040` },
   { name: '장학', url: `${SCNU_ORIGIN}/SCNU/na/ntt/selectNttList.do?mi=8690&bbsId=4487` },
-  { name: '학사', url: `${SCNU_ORIGIN}/SCNU/na/ntt/selectNttList.do?mi=1132&bbsId=1041` }
+  { name: '학사', url: `${SCNU_ORIGIN}/SCNU/na/ntt/selectNttList.do?mi=1132&bbsId=1041` },
+  { name: '그린스마트팜스쿨', url: `${SCNU_ORIGIN}/gsf/na/ntt/selectNttList.do?mi=9579&bbsId=4785` },
+  { name: '애니메이션문화콘텐츠스쿨', url: `${SCNU_ORIGIN}/aniculture/na/ntt/selectNttList.do?mi=9659&bbsId=4810` },
+  { name: '우주항공첨단소재스쿨', url: `${SCNU_ORIGIN}/ama/na/ntt/selectNttList.do?mi=9704&bbsId=4815` }
 ]
 
 const decodeBoardText = (value: string) => value
@@ -17,30 +20,59 @@ const decodeBoardText = (value: string) => value
   .replace(/&lt;/g, '<')
   .replace(/&gt;/g, '>')
   .replace(/&quot;|&#34;/g, '"')
-  .replace(/&#39;|&apos;/g, "'")
+  .replace(/&#0*39;|&apos;/g, "'")
   .replace(/\s+/g, ' ')
   .trim()
 
 const recommendationScore = (title: string, board: string) => {
   if (/대학원생/.test(title) && !/학부생/.test(title)) return -99
   let score = 0
-  if (/신입생|1학년|새내기/.test(title)) score += 8
+  if (/신입생|1학년|새내기|무전공|전공배정|전공박람회/.test(title)) score += 8
   if (/학부생|재학생|학생/.test(title)) score += 3
   if (/신청|모집|참여자|교육생|접수/.test(title)) score += 3
   if (/장학|국가근로|생활비|주거안정/.test(title)) score += 3
   if (/멘토링|튜터링|스터디|상담|특강|체험|박람회|공모전|봉사|동아리|진로/.test(title)) score += 2
   if (board === '장학') score += 2
+  if (board.endsWith('스쿨')) score += 4
   if (/수상자 발표|예선 결과|선정 결과|지급 안내|폐강|졸업|조기취업|일시적 제한|재이수|추가등록|휴학/.test(title)) score -= 10
   return score
 }
 
 const recommendationReason = (title: string, board: string) => {
-  if (/신입생|1학년|새내기/.test(title)) return '신입생 맞춤 추천'
+  if (board.endsWith('스쿨')) return `${board} 맞춤 추천`
+  if (/신입생|1학년|새내기|무전공/.test(title)) return '신입생 맞춤 추천'
   if (/장학|국가근로|생활비|주거안정/.test(title) || board === '장학') return '1학년부터 챙기기 좋은 장학 정보'
   if (/진로|박람회|취업|JOB/.test(title)) return '진로 탐색에 유용한 프로그램'
   if (/상담/.test(title)) return '학교생활 적응에 도움 되는 상담'
   if (/특강|교육|체험|멘토링|튜터링|스터디/.test(title)) return '경험을 넓히는 비교과 활동'
   return '신청 기간을 확인해 볼 추천 공지'
+}
+
+const SCNU_SCHOOL_KEYWORDS = [
+  { school: '그린스마트팜스쿨', keywords: ['그린스마트팜', '농대', '농업', '농생명', '산림', '조경', '동물자원', '원예', '식품공학', '농업경제', '의생명', '조리과학', '한약자원', '농축산', '스마트팜'] },
+  { school: '애니메이션문화콘텐츠스쿨', keywords: ['애니메이션', '문화콘텐츠', '경영학', '법학', '회계학', '경제학', '무역학', '행정학', '물류학', '사회복지', '사학', '철학', '중국학', '일본문화', '문예창작', '사회체육', '음악예술', '사진미디어', '영상디자인', '만화애니메이션', '패션디자인'] },
+  { school: '우주항공첨단소재스쿨', keywords: ['우주항공', '첨단소재', '공과대학', '토목', '환경공학', '기계', '신소재', '화학공학', '전기공학', '전자공학', '인공지능', '컴퓨터공학', '에너지응용'] },
+  { school: '본부직속', keywords: ['자유전공', '스마트팩토리', '식품영양', '융합바이오시스템기계', '간호학', '국제한국어교육', '건축학', '글로벌인재'] }
+]
+
+const SCNU_MAJOR_NAMES = [
+  '자유전공학부','스마트팩토리혁신학과','식품영양학과','융합바이오시스템기계공학과','간호학과','국제한국어교육학과','건축학부','글로벌매니지먼트전공','글로벌ICT문화예술콘텐츠전공',
+  '농생명과학전공','산림자원학전공','조경학전공','동물자원과학전공','원예학전공','식품공학전공','농업경제학전공','의생명과학전공','조리과학전공','바이오한약자원학전공','국제농축산학과',
+  '경영학전공','법학전공','회계학전공','경제학전공','무역학전공','행정학전공','물류학전공','사회복지학전공','사학전공','철학전공','글로벌중국학전공','일본어일본문화학전공','문예창작학전공','사회체육학전공','음악예술융합학전공','사진미디어학전공','영상디자인학전공','만화애니메이션학전공','패션디자인학전공',
+  '토목공학전공','환경공학전공','기계우주항공공학전공','첨단신소재공학전공','화학공학전공','전기공학전공','전자공학전공','인공지능공학전공','컴퓨터공학전공','화학전공','에너지응용공학전공'
+]
+
+const classifyRecommendation = (title: string, html: string, board: string) => {
+  const text = `${title} ${decodeBoardText(html.match(/id="imgAlt"[^>]*>([\s\S]*?)<\/td>/i)?.[1] ?? '')}`
+  const schools = SCNU_SCHOOL_KEYWORDS
+    .filter((group) => group.school === board || group.keywords.some((keyword) => text.includes(keyword)))
+    .map((group) => group.school)
+  const majors = SCNU_MAJOR_NAMES.filter((major) => {
+    const keyword = major.replace(/전공|학과|학부/g, '')
+    return keyword.length >= 2 && text.includes(keyword)
+  })
+  const general = !board.endsWith('스쿨') && (schools.length === 0 || /순천대학교 재학생|우리 대학 재학생|전체 학생|학부생 누구나|재학생, 졸업생/.test(text))
+  return { schools, majors, general }
 }
 
 const extractUpcomingDate = (html: string, published: string) => {
@@ -143,25 +175,27 @@ app.get('/api/scnu/recommendations', async (c) => {
       })
       .sort((a, b) => Number(b.score) - Number(a.score) || String(b.published).localeCompare(String(a.published)))
       .filter((item, index, list) => list.findIndex((candidate) => candidate.id === item.id) === index)
-      .slice(0, 16)
+      .slice(0, 24)
 
     const detailed = await Promise.allSettled(candidates.map(async (item) => {
       const response = await fetch(String(item.url), { headers: { 'User-Agent': 'UniStarter/1.0 (+https://www.scnu.ac.kr)' } })
       if (!response.ok) throw new Error(`notice ${item.id} responded ${response.status}`)
-      const deadline = extractUpcomingDate(await response.text(), String(item.published))
-      return { ...item, deadline }
+      const html = await response.text()
+      const deadline = extractUpcomingDate(html, String(item.published))
+      const audience = classifyRecommendation(String(item.title), html, String(item.board))
+      return { ...item, deadline, ...audience }
     }))
 
     const recommendations = detailed
-      .map((result, index) => result.status === 'fulfilled' ? result.value : { ...candidates[index], deadline: '' })
-      .filter((item) => item.deadline || now - new Date(`${item.published}T00:00:00`).getTime() <= day * 14)
+      .map((result, index) => result.status === 'fulfilled' ? result.value : { ...candidates[index], deadline: '', schools: [], majors: [], general: true })
+      .filter((item) => item.deadline || now - new Date(`${item.published}T00:00:00`).getTime() <= day * 7)
       .sort((a, b) => {
         if (a.deadline && b.deadline) return String(a.deadline).localeCompare(String(b.deadline))
         if (a.deadline) return -1
         if (b.deadline) return 1
         return Number(b.score) - Number(a.score)
       })
-      .slice(0, 8)
+      .slice(0, 18)
       .map(({ score: _score, ...item }) => item)
 
     return c.json({
@@ -284,7 +318,7 @@ app.get('*', (c) => c.html(`<!DOCTYPE html>
         <article class="dday-hero"><div class="eyebrow"><i data-lucide="alarm-clock" size="15"></i> 가장 가까운 일정</div><div id="nextDday" class="dday-big">D-12</div><b id="nextEvent">1학기 중간고사</b><p id="nextDate" style="font-size:12px;color:#bdc8e0;margin:7px 0 0"></p></article>
         <div id="ddayList" class="dday-list"></div>
       </div>
-      <section class="section" aria-labelledby="recommend-title"><div class="section-head"><div><h2 id="recommend-title" class="section-title">1학년 추천 신청·활동</h2><p class="section-sub">학교 공식 공지에서 새내기에게 유용한 내용을 골라왔어요</p></div><span id="recommendBadge" class="live-badge">실시간</span></div><div id="recommendSync" class="sync-status" style="margin:-5px 0 12px"><span class="sync-dot loading"></span><span>추천 공지를 불러오는 중...</span></div><div id="recommendList" class="recommend-list"></div><p style="font-size:10px;color:var(--muted);line-height:1.5;margin:10px 3px 0">추천은 공지 제목의 신입생·신청·장학·상담·진로·비교과 키워드를 기준으로 제공됩니다. 반드시 공식 공지에서 대상과 마감일을 확인하세요.</p></section>
+      <section class="section" aria-labelledby="recommend-title"><div class="section-head"><div><h2 id="recommend-title" class="section-title">1학년 추천 신청·활동</h2><p id="recommendContext" class="section-sub">학교 공식 공지에서 새내기에게 유용한 내용을 골라왔어요</p></div><span id="recommendBadge" class="live-badge">실시간</span></div><div id="recommendSync" class="sync-status" style="margin:-5px 0 12px"><span class="sync-dot loading"></span><span>추천 공지를 불러오는 중...</span></div><div id="recommendList" class="recommend-list"></div><p style="font-size:10px;color:var(--muted);line-height:1.5;margin:10px 3px 0">추천은 공지 제목의 신입생·신청·장학·상담·진로·비교과 키워드를 기준으로 제공됩니다. 반드시 공식 공지에서 대상과 마감일을 확인하세요.</p></section>
       <section class="section"><div class="section-head"><div><h2 class="section-title">나만의 D-Day</h2><p class="section-sub">기억하고 싶은 일정을 계산해 보세요</p></div></div>
         <form id="ddayForm" class="progress-card" style="display:grid;grid-template-columns:1fr 1fr auto;gap:9px;align-items:end">
           <label style="font-size:11px;color:var(--muted)">일정 이름<input id="customEvent" required placeholder="예: MT 신청" style="display:block;width:100%;margin-top:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink);padding:11px;border-radius:11px;outline:none"></label>
@@ -299,7 +333,7 @@ app.get('*', (c) => c.html(`<!DOCTYPE html>
     <section id="saved" class="page">
       <div class="profile-card">
         <div class="profile-row"><div class="avatar"><i data-lucide="user-round" size="25"></i></div><div><h2>반가워요, 새내기 님</h2><p id="profileSummary">학교와 전공을 설정해 맞춤 정보를 받아보세요</p></div></div>
-        <div class="select-row"><select id="universitySelect" aria-label="대학교"><option value="">대학교 선택</option><optgroup label="광주광역시"><option>전남대학교</option><option>광주교육대학교</option><option>광주과학기술원(GIST)</option><option>조선대학교</option><option>광주대학교</option><option>호남대학교</option><option>광주여자대학교</option><option>남부대학교</option><option>송원대학교</option><option>광신대학교</option><option>호남신학대학교</option></optgroup><optgroup label="전라남도"><option value="순천대학교">국립순천대학교</option><option>광주가톨릭대학교</option><option>국립목포대학교</option><option>국립목포해양대학교</option><option>한국에너지공과대학교(KENTECH)</option><option>동신대학교</option><option>초당대학교</option><option>세한대학교</option><option>영산선학대학교</option></optgroup><optgroup label="광주·전남 전문대학"><option>전남도립대학교</option><option>광주보건대학교</option><option>기독간호대학교</option><option>동강대학교</option><option>서영대학교</option><option>조선간호대학교</option><option>조선이공대학교</option><option>순천제일대학교</option><option>청암대학교</option><option>목포과학대학교</option><option>전남과학대학교</option><option>동아보건대학교</option><option>한영대학교</option></optgroup></select><select id="majorSelect" aria-label="전공"><option value="">전공 선택</option></select></div>
+        <div class="select-row"><select id="universitySelect" aria-label="대학교"><option value="">대학교 선택</option><optgroup label="광주광역시"><option>전남대학교</option><option>광주교육대학교</option><option>광주과학기술원(GIST)</option><option>조선대학교</option><option>광주대학교</option><option>호남대학교</option><option>광주여자대학교</option><option>남부대학교</option><option>송원대학교</option><option>광신대학교</option><option>호남신학대학교</option></optgroup><optgroup label="전라남도"><option value="순천대학교">국립순천대학교</option><option>광주가톨릭대학교</option><option>국립목포대학교</option><option>국립목포해양대학교</option><option>한국에너지공과대학교(KENTECH)</option><option>동신대학교</option><option>초당대학교</option><option>세한대학교</option><option>영산선학대학교</option></optgroup><optgroup label="광주·전남 전문대학"><option>전남도립대학교</option><option>광주보건대학교</option><option>기독간호대학교</option><option>동강대학교</option><option>서영대학교</option><option>조선간호대학교</option><option>조선이공대학교</option><option>순천제일대학교</option><option>청암대학교</option><option>목포과학대학교</option><option>전남과학대학교</option><option>동아보건대학교</option><option>한영대학교</option></optgroup></select><select id="majorSelect" aria-label="소속 스쿨 또는 전공"><option value="">소속 스쿨·전공 선택</option></select></div><p id="affiliationHint" style="font-size:10px;color:var(--muted);margin:9px 2px 0">국립순천대학교 무전공 신입생은 입학한 스쿨을 선택할 수 있어요.</p>
         <div id="installBanner" class="install-banner"><i data-lucide="download" size="21"></i><div><b>UniStarter 앱 설치</b><p>홈 화면에서 더 빠르고 안정적으로 이용하세요</p></div><button id="installButton" class="primary-btn">설치</button></div>
       </div>
       <section class="section"><div class="section-head"><div><h2 class="section-title">국립순천대학교 바로가기</h2><p class="section-sub">공식 서비스로 안전하게 이동해요</p></div></div><div class="quick-grid"><a class="quick-link" href="https://portal.scnu.ac.kr/" target="_blank" rel="noopener"><i data-lucide="layout-dashboard" size="20"></i><span><b>향림통 포털</b><small>통합 학생 서비스</small></span></a><a class="quick-link" href="https://ecampus.scnu.ac.kr/" target="_blank" rel="noopener"><i data-lucide="monitor-play" size="20"></i><span><b>e-캠퍼스</b><small>온라인 강의</small></span></a><a class="quick-link" href="https://library.scnu.ac.kr/" target="_blank" rel="noopener"><i data-lucide="library" size="20"></i><span><b>도서관</b><small>좌석·자료 검색</small></span></a><a class="quick-link" href="https://www.scnu.ac.kr/haksa/main.do" target="_blank" rel="noopener"><i data-lucide="school" size="20"></i><span><b>학사안내</b><small>공식 공지 확인</small></span></a></div></section>
@@ -341,6 +375,7 @@ const tasks=[
 {id:'scholar',title:'장학금 일정 확인',desc:'국가장학금 2차 신청 대상 점검',icon:'circle-dollar-sign',steps:['한국장학재단에서 국가장학금 신청 기간을 확인해요.','신청서 제출 후 서류 제출과 가구원 동의 상태를 확인해요.','학교 학사안내의 교내 장학 공지도 함께 확인해요.'],url:'https://www.kosaf.go.kr/'},
 {id:'club',title:'동아리 박람회 둘러보기',desc:'관심 동아리 3곳을 미리 저장해 두기',icon:'users',steps:['총학생회와 학교 공지에서 동아리 박람회 일정을 찾아요.','관심 분야와 활동 요일이 맞는 동아리를 세 곳 골라요.','회비, 정기 활동, 신입 모집 마감일을 문의해요.'],url:'https://www.scnu.ac.kr/SCNU/main.do'}];
 const faqs=[
+{q:'순천대 무전공 스쿨 신입생은 어떻게 설정하나요?',a:'마이페이지에서 국립순천대학교를 선택한 뒤 소속 스쿨·전공 목록의 무전공 입학 스쿨에서 그린스마트팜스쿨, 애니메이션문화콘텐츠스쿨, 우주항공첨단소재스쿨 중 입학한 스쿨을 선택하세요. 캘린더가 해당 스쿨 공지와 전공박람회·전공배정·장학 정보를 우선 추천해요. 실제 전공배정 시기와 방법은 매 학기 공식 학사 공지를 확인하세요.',url:'https://www.scnu.ac.kr/SCNU/cm/cntnts/cntntsView.do?mi=9508&cntntsId=5472'},
 {q:'카카오톡 지갑에 대학생 카드가 있나요?',a:'네. 카카오톡 지갑의 톡학생증은 대학(원) 재학·졸업 정보를 인증하는 디지털카드예요. 카카오톡 더보기 → 지갑 또는 디지털카드 → 톡학생증에서 발급할 수 있고, 학생 인증과 전용 제휴 혜택 확인에 사용할 수 있어요. 학교 실물 학생증의 출입·결제 기능을 모두 대체하는지는 학교별로 다르니 별도로 확인하세요.',url:'https://student-id.kakao.com/'},
 {q:'수강신청은 어떻게 준비하나요?',a:'수강편람에서 선수과목과 강의 시간을 먼저 확인하고, 희망과목 장바구니를 활용하세요. 당일에는 유선 인터넷과 정확한 서버 시간을 준비하는 것이 좋아요.'},
 {q:'학생 상담센터는 언제 이용할 수 있나요?',a:'대부분 평일 09:00~18:00 운영하며 학교 포털에서 무료 상담을 예약할 수 있어요. 위기 상담은 교내 안내 번호를 통해 별도로 연결됩니다.'},
@@ -355,6 +390,7 @@ const fallbackEvents=[
 let events=[...fallbackEvents];
 let recommendations=[];
 const genericMajors=['경영학과','컴퓨터공학과','미디어학과','심리학과','자유전공학부'];
+const scnuSchoolChoices=['그린스마트팜스쿨','애니메이션문화콘텐츠스쿨','우주항공첨단소재스쿨'];
 const scnuMajorGroups={
 '본부직속':['자유전공학부','스마트팩토리혁신학과','식품영양학과','융합바이오시스템기계공학과','간호학과','국제한국어교육학과','건축학부','글로벌인재학부-글로벌매니지먼트전공','글로벌인재학부-글로벌ICT문화예술콘텐츠전공'],
 '그린스마트팜스쿨':['농생명과학전공','산림자원학전공','조경학전공','동물자원과학전공','원예학전공','식품공학전공','농업경제학전공','의생명과학전공','조리과학전공','바이오한약자원학전공','국제농축산학과'],
@@ -383,14 +419,17 @@ function toggleSave(id){saved=saved.includes(id)?saved.filter(x=>x!==id):[...sav
 function renderTasks(){el('checkList').innerHTML=tasks.map(t=>'<article class="check-card '+(done.includes(t.id)?'done':'')+'" data-guide="'+t.id+'" role="button" tabindex="0" aria-label="'+t.title+' 방법 보기"><div class="check-icon"><i data-lucide="'+t.icon+'" size="19"></i></div><div><h3>'+t.title+'</h3><p>'+t.desc+'</p><span class="guide-more">방법 보기 <i data-lucide="chevron-right" size="11"></i></span></div><button class="check-toggle" data-task="'+t.id+'" aria-label="'+t.title+' 완료"><i data-lucide="check" size="16"></i></button></article>').join('');updateProgress();iconRefresh()}
 function updateProgress(){const pct=Math.round(done.length/tasks.length*100);el('progressRing').style.setProperty('--progress',pct+'%');el('progressText').textContent=pct+'%';el('progressFill').style.width=pct+'%';el('progressMessage').textContent=pct===100?'완벽해요! 캠퍼스 생활 준비 완료':done.length+'개 완료 · '+(tasks.length-done.length)+'개 남았어요';updateStats()}
 function renderFaqs(){el('faqList').innerHTML=faqs.map((f,i)=>'<article class="faq"><button class="faq-q" data-faq="'+i+'"><span class="result-type">Q</span><span>'+f.q+'</span><i class="chev" data-lucide="chevron-down" size="17"></i></button><div class="faq-a">'+f.a+(f.url?'<br><a href="'+f.url+'" target="_blank" rel="noopener" style="display:inline-block;margin-top:8px;color:var(--primary);font-weight:700">카카오 공식 안내 보기 →</a>':'')+'</div></article>').join('');iconRefresh()}
-function renderCalendar(){const today=new Date();today.setHours(0,0,0,0);const recommendedEvents=recommendations.filter(item=>item.deadline).map(item=>({id:'recommend-'+item.id,title:item.title,start:item.deadline,end:item.deadline,description:item.reason,url:item.url,recommended:true}));const combined=[...events,...recommendedEvents].filter((item,index,list)=>list.findIndex(candidate=>candidate.title===item.title&&candidate.start===item.start)===index);const sorted=combined.map(e=>({...e,date:eventDate(e),endDate:new Date((e.end||e.start)+'T23:59:59')})).filter(e=>e.endDate>=today).sort((a,b)=>a.date-b.date).slice(0,8);if(!sorted.length){el('nextDday').textContent='—';el('nextEvent').textContent='예정된 일정이 없어요';el('nextDate').textContent='공식 학사안내에서 새 일정을 확인해 주세요';el('ddayList').innerHTML='<div class="empty"><b>다가오는 학사일정이 없습니다</b></div>';return}const first=sorted[0],d=Math.max(0,daysUntil(first.date));el('nextDday').textContent=d===0?'D-DAY':'D-'+d;el('nextEvent').textContent=(first.recommended?'추천 · ':'')+first.title;el('nextDate').textContent=first.date.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});el('ddayList').innerHTML=sorted.map(e=>{const x=Math.max(0,daysUntil(e.date)),month=e.date.getMonth()+1,day=e.date.getDate(),period=e.end&&e.end!==e.start?e.start.replaceAll('-','.')+' ~ '+e.end.replaceAll('-','.'):(e.description||'국립순천대학교 공식 일정'),tag=e.recommended?'<span class="recommend-reason" style="margin-right:5px">추천</span>':'',open=e.url?'<a class="dday-row dday-row-link" href="'+e.url+'" target="_blank" rel="noopener">':'<article class="dday-row">',close=e.url?'</a>':'</article>';return open+'<div class="date-box"><span>'+month+'월</span><b>'+day+'</b></div><div class="dday-info"><b>'+tag+safeText(e.title)+'</b><p>'+safeText(period)+'</p></div><span class="d-pill">'+(x===0?'D-DAY':'D-'+x)+'</span>'+close}).join('');iconRefresh()}
+function selectedSchool(){if(profile.university!=='순천대학교')return '';if(profile.major&&profile.major.startsWith('스쿨:'))return profile.major.slice(3);for(const [school,majors] of Object.entries(scnuMajorGroups)){if(majors.includes(profile.major))return school}return ''}
+function personalizedRecommendations(){const school=selectedSchool(),major=profile.major&&profile.major.startsWith('스쿨:')?'':profile.major;if(!school&&!major)return [...recommendations];const score=item=>Number(Boolean(major&&item.majors&&item.majors.includes(major)))*3+Number(Boolean(school&&item.schools&&item.schools.includes(school)))*2+Number(Boolean(item.general));return recommendations.filter(item=>item.general||!Array.isArray(item.schools)||!item.schools.length||item.schools.includes(school)).sort((a,b)=>score(b)-score(a))}
+function renderCalendar(){const today=new Date();today.setHours(0,0,0,0);const recommendedEvents=personalizedRecommendations().filter(item=>item.deadline).map(item=>({id:'recommend-'+item.id,title:item.title,start:item.deadline,end:item.deadline,description:item.reason,url:item.url,recommended:true}));const combined=[...events,...recommendedEvents].filter((item,index,list)=>list.findIndex(candidate=>candidate.title===item.title&&candidate.start===item.start)===index);const sorted=combined.map(e=>({...e,date:eventDate(e),endDate:new Date((e.end||e.start)+'T23:59:59')})).filter(e=>e.endDate>=today).sort((a,b)=>a.date-b.date).slice(0,8);if(!sorted.length){el('nextDday').textContent='—';el('nextEvent').textContent='예정된 일정이 없어요';el('nextDate').textContent='공식 학사안내에서 새 일정을 확인해 주세요';el('ddayList').innerHTML='<div class="empty"><b>다가오는 학사일정이 없습니다</b></div>';return}const first=sorted[0],d=Math.max(0,daysUntil(first.date));el('nextDday').textContent=d===0?'D-DAY':'D-'+d;el('nextEvent').textContent=(first.recommended?'추천 · ':'')+first.title;el('nextDate').textContent=first.date.toLocaleDateString('ko-KR',{year:'numeric',month:'long',day:'numeric'});el('ddayList').innerHTML=sorted.map(e=>{const x=Math.max(0,daysUntil(e.date)),month=e.date.getMonth()+1,day=e.date.getDate(),period=e.end&&e.end!==e.start?e.start.replaceAll('-','.')+' ~ '+e.end.replaceAll('-','.'):(e.description||'국립순천대학교 공식 일정'),tag=e.recommended?'<span class="recommend-reason" style="margin-right:5px">추천</span>':'',open=e.url?'<a class="dday-row dday-row-link" href="'+e.url+'" target="_blank" rel="noopener">':'<article class="dday-row">',close=e.url?'</a>':'</article>';return open+'<div class="date-box"><span>'+month+'월</span><b>'+day+'</b></div><div class="dday-info"><b>'+tag+safeText(e.title)+'</b><p>'+safeText(period)+'</p></div><span class="d-pill">'+(x===0?'D-DAY':'D-'+x)+'</span>'+close}).join('');iconRefresh()}
 async function loadOfficialCalendar(force=false){const dot=el('syncDot'),text=el('syncText'),cached=store.get('calendar-cache',null);dot.className='sync-dot loading';text.textContent='국립순천대학교 공식 일정을 동기화하는 중...';if(cached&&cached.events&&!force){events=cached.events;renderCalendar()}try{const res=await fetch('/api/scnu/calendar',{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();if(!Array.isArray(data.events)||!data.events.length)throw new Error('empty calendar');events=data.events;store.set('calendar-cache',{events:events,syncedAt:data.syncedAt});renderCalendar();dot.className='sync-dot';const synced=new Date(data.syncedAt);text.textContent='공식 일정 동기화 · '+synced.toLocaleString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});checkReminders()}catch(error){console.warn('Calendar sync fallback',error);dot.className='sync-dot error';text.textContent=cached?'오프라인 캐시 일정 표시 중':'연결 실패 · 기본 일정 표시 중';renderCalendar()}}
-function renderRecommendations(){const list=el('recommendList');el('recommendBadge').textContent=recommendations.length?recommendations.length+'건 추천':'실시간';if(!recommendations.length){list.innerHTML='<div class="empty"><div class="empty-icon"><i data-lucide="radar" size="22"></i></div><b>현재 추천할 새 공지가 없어요</b><p style="font-size:12px">새 공지가 등록되면 자동으로 표시됩니다.</p></div>';renderCalendar();iconRefresh();return}list.innerHTML=recommendations.map(item=>{const timing=item.deadline?'신청·행사 '+item.deadline.replaceAll('-','.'):'최근 공지 '+item.published.replaceAll('-','.');return '<a class="recommend-card" href="'+item.url+'" target="_blank" rel="noopener"><span class="recommend-icon"><i data-lucide="'+(item.board==='장학'?'badge-dollar-sign':item.board==='학사'?'book-open-check':'sparkles')+'" size="19"></i></span><span><h3>'+safeText(item.title)+'</h3><span class="recommend-meta"><span class="recommend-reason">'+safeText(item.reason)+'</span><span>'+safeText(item.board)+' · '+safeText(timing)+'</span></span></span><i data-lucide="arrow-up-right" size="17" style="color:var(--muted)"></i></a>'}).join('');renderCalendar();iconRefresh()}
+function renderRecommendations(){const list=el('recommendList'),school=selectedSchool(),visible=personalizedRecommendations();el('recommendContext').textContent=school?school+' 소속 공지와 전체 신입생 추천을 우선 표시해요':'학교 공식 공지에서 새내기에게 유용한 내용을 골라왔어요';el('recommendBadge').textContent=visible.length?visible.length+'건 추천':'실시간';if(!visible.length){list.innerHTML='<div class="empty"><div class="empty-icon"><i data-lucide="radar" size="22"></i></div><b>현재 맞춤 추천 공지가 없어요</b><p style="font-size:12px">새 공지가 등록되면 선택한 스쿨·전공에 맞춰 표시됩니다.</p></div>';renderCalendar();iconRefresh();return}list.innerHTML=visible.slice(0,8).map(item=>{const timing=item.deadline?'신청·행사 '+item.deadline.replaceAll('-','.'):'최근 공지 '+item.published.replaceAll('-','.'),majorMatched=profile.major&&!profile.major.startsWith('스쿨:')&&item.majors&&item.majors.some(major=>profile.major.includes(major)||major.includes(profile.major)),schoolMatched=school&&item.schools&&item.schools.includes(school),reason=majorMatched?profile.major+' 맞춤':schoolMatched?school+' 맞춤':item.reason;return '<a class="recommend-card" href="'+item.url+'" target="_blank" rel="noopener"><span class="recommend-icon"><i data-lucide="'+(item.board==='장학'?'badge-dollar-sign':item.board==='학사'?'book-open-check':'sparkles')+'" size="19"></i></span><span><h3>'+safeText(item.title)+'</h3><span class="recommend-meta"><span class="recommend-reason">'+safeText(reason)+'</span><span>'+safeText(item.board)+' · '+safeText(timing)+'</span></span></span><i data-lucide="arrow-up-right" size="17" style="color:var(--muted)"></i></a>'}).join('');renderCalendar();iconRefresh()}
 async function loadRecommendations(force=false){const status=el('recommendSync'),cached=store.get('recommendations-cache',[]);status.innerHTML='<span class="sync-dot loading"></span><span>학교 공식 공지에서 추천 정보를 찾는 중...</span>';if(cached.length&&!force){recommendations=cached;renderRecommendations()}try{const res=await fetch('/api/scnu/recommendations',{cache:force?'reload':'default'});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();recommendations=Array.isArray(data.recommendations)?data.recommendations:[];store.set('recommendations-cache',recommendations);renderRecommendations();const synced=new Date(data.syncedAt);status.innerHTML='<span class="sync-dot"></span><span>공식 홈페이지 동기화 · '+synced.toLocaleString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})+'</span>'}catch(error){console.warn('Recommendation sync fallback',error);recommendations=cached;renderRecommendations();status.innerHTML='<span class="sync-dot error"></span><span>'+(cached.length?'저장된 추천 공지 표시 중':'추천 공지를 불러오지 못했어요')+'</span>'}}
 function renderSaved(){const list=benefits.filter(b=>saved.includes(b.id));el('savedGrid').innerHTML=list.length?list.map(card).join(''):'<div class="empty" style="grid-column:1/-1"><div class="empty-icon"><i data-lucide="bookmark" size="23"></i></div><b>아직 저장한 혜택이 없어요</b><p style="font-size:12px">혜택 카드의 북마크를 눌러 모아보세요.</p></div>';el('savedBadge').textContent=list.length+'개';iconRefresh()}
 function updateStats(){el('savedCount').textContent=saved.length;el('taskCount').textContent=done.length+'/'+tasks.length;el('mySaved').textContent=saved.length;el('myDone').textContent=done.length;el('myRate').textContent=Math.round(done.length/tasks.length*100)+'%'}
-function renderMajorOptions(){const select=el('majorSelect'),isScnu=profile.university==='순천대학교';let html='<option value="">전공 선택</option>';if(isScnu){Object.entries(scnuMajorGroups).forEach(([group,items])=>{html+='<optgroup label="'+group+'">'+items.map(item=>'<option>'+item+'</option>').join('')+'</optgroup>'})}else{html+=genericMajors.map(item=>'<option>'+item+'</option>').join('')}select.innerHTML=html;if([...select.options].some(o=>o.value===profile.major))select.value=profile.major;else{profile.major='';select.value=''}}
-function renderProfile(){el('universitySelect').value=profile.university||'';renderMajorOptions();const summary=[profile.university==='순천대학교'?'국립순천대학교':profile.university,profile.major].filter(Boolean).join(' · ');el('profileSummary').textContent=summary||'학교와 전공을 설정해 맞춤 정보를 받아보세요';el('sideMajor').textContent=profile.major||'새내기 님'}
+function renderMajorOptions(){const select=el('majorSelect'),isScnu=profile.university==='순천대학교';let html='<option value="">소속 스쿨·전공 선택</option>';if(isScnu){html+='<optgroup label="무전공 입학 스쿨(1학년)">'+scnuSchoolChoices.map(item=>'<option value="스쿨:'+item+'">'+item+' · 무전공</option>').join('')+'</optgroup>';Object.entries(scnuMajorGroups).forEach(([group,items])=>{html+='<optgroup label="'+group+' 전공">'+items.map(item=>'<option>'+item+'</option>').join('')+'</optgroup>'})}else{html+=genericMajors.map(item=>'<option>'+item+'</option>').join('')}select.innerHTML=html;if([...select.options].some(o=>o.value===profile.major))select.value=profile.major;else{profile.major='';select.value=''}}
+function affiliationLabel(){return profile.major&&profile.major.startsWith('스쿨:')?profile.major.slice(3)+' · 무전공 1학년':profile.major}
+function renderProfile(){el('universitySelect').value=profile.university||'';renderMajorOptions();const affiliation=affiliationLabel(),summary=[profile.university==='순천대학교'?'국립순천대학교':profile.university,affiliation].filter(Boolean).join(' · ');el('profileSummary').textContent=summary||'학교와 소속 스쿨·전공을 설정해 맞춤 정보를 받아보세요';el('sideMajor').textContent=affiliation||'새내기 님';el('affiliationHint').textContent=profile.university==='순천대학교'?(selectedSchool()?selectedSchool()+' 기준으로 캘린더 추천을 맞춤 정렬해요.':'무전공 신입생은 입학한 스쿨을 선택하면 맞춤 추천을 받을 수 있어요.'):'국립순천대학교 선택 시 무전공 스쿨과 공식 전공 목록을 제공해요.';if(el('recommendList'))renderRecommendations()}
 function renderShareQr(){const box=el('shareQr');box.innerHTML='';const shareUrl=location.origin+'/';if(window.QRCode){new QRCode(box,{text:shareUrl,width:100,height:100,colorDark:'#172033',colorLight:'#ffffff',correctLevel:QRCode.CorrectLevel.H})}else{box.innerHTML='<span style="font-size:10px;color:#64748b">QR을 불러오지 못했어요</span>'}}
 function downloadShareQr(){const canvas=el('shareQr').querySelector('canvas'),img=el('shareQr').querySelector('img'),href=canvas?canvas.toDataURL('image/png'):img&&img.src;if(!href){showToast('QR 이미지가 아직 준비되지 않았어요');return}const a=document.createElement('a');a.href=href;a.download='UniStarter-QR.png';a.click();showToast('QR 이미지를 저장했어요')}
 function navigate(page){document.querySelectorAll('.page').forEach(x=>x.classList.toggle('active',x.id===page));document.querySelectorAll('[data-page]').forEach(x=>x.classList.toggle('active',x.dataset.page===page));window.scrollTo({top:0,behavior:'smooth'});if(page==='saved'){renderSaved();renderShareQr()}}
@@ -400,12 +439,12 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&el('detailModal').c
 el('categoryFilters').addEventListener('click',()=>{});el('resetFilter').onclick=()=>{activeCategory='전체';renderCategories();renderBenefits()};
 el('globalSearch').addEventListener('input',e=>search(e.target.value));document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();el('globalSearch').focus();navigate('home')}if(e.key==='Escape')el('searchResults').classList.remove('show')});
 el('themeToggle').onclick=()=>{document.documentElement.classList.toggle('dark');const dark=document.documentElement.classList.contains('dark');try{localStorage.setItem('unistarter-theme',dark?'dark':'light')}catch(e){}el('themeToggle').innerHTML='<i data-lucide="'+(dark?'sun':'moon')+'" size="19"></i>';document.querySelector('meta[name="theme-color"]').content=dark?'#0d1321':'#f6f8fc';iconRefresh()};
-el('universitySelect').addEventListener('change',()=>{profile={university:el('universitySelect').value,major:''};if(store.set('profile',profile)){renderProfile();showToast(profile.university==='순천대학교'?'국립순천대학교 전공 목록을 불러왔어요':'학교 정보가 저장됐어요')}});el('majorSelect').addEventListener('change',()=>{profile.major=el('majorSelect').value;if(store.set('profile',profile)){renderProfile();showToast('전공 정보가 저장됐어요')}});
+el('universitySelect').addEventListener('change',()=>{profile={university:el('universitySelect').value,major:''};if(store.set('profile',profile)){renderProfile();showToast(profile.university==='순천대학교'?'무전공 스쿨과 전공 목록을 불러왔어요':'학교 정보가 저장됐어요')}});el('majorSelect').addEventListener('change',()=>{profile.major=el('majorSelect').value;if(store.set('profile',profile)){renderProfile();showToast('소속 정보가 저장되고 추천이 맞춤 적용됐어요')}});
 el('calendarRefresh').onclick=()=>{loadOfficialCalendar(true);loadRecommendations(true)};el('downloadQr').onclick=downloadShareQr;
 el('ddayForm').addEventListener('submit',e=>{e.preventDefault();const name=el('customEvent').value,date=new Date(el('customDate').value+'T00:00:00'),d=daysUntil(date);el('customResult').innerHTML='<article class="dday-row"><div class="date-box"><i data-lucide="flag" size="20"></i></div><div class="dday-info"><b>'+name+'</b><p>'+date.toLocaleDateString('ko-KR')+'</p></div><span class="d-pill">'+(d===0?'D-DAY':d>0?'D-'+d:'D+'+Math.abs(d))+'</span></article>';iconRefresh()});
 const reminder=store.get('reminder',{enabled:false,days:3,lastSent:''});
 function renderNotificationStatus(){const supported='Notification' in window;el('reminderDays').value=String(reminder.days||3);el('notificationToggle').textContent=reminder.enabled?'알림 끄기':'알림 켜기';el('notificationStatus').textContent=!supported?'이 브라우저는 알림을 지원하지 않아요':reminder.enabled?'앱을 열면 '+reminder.days+'일 이내 일정을 알려드려요':'알림을 켜면 중요한 일정을 놓치지 않아요'}
-async function checkReminders(){if(!reminder.enabled||!('Notification' in window)||Notification.permission!=='granted')return;const upcoming=events.map(e=>({...e,days:daysUntil(eventDate(e))})).filter(e=>e.days>=0&&e.days<=reminder.days).sort((a,b)=>a.days-b.days);if(!upcoming.length)return;const today=new Date().toISOString().slice(0,10),key=today+':'+upcoming.map(e=>e.id).join(',');if(reminder.lastSent===key)return;const title=upcoming[0].days===0?'오늘의 학사일정':'다가오는 학사일정 D-'+upcoming[0].days;const options={body:upcoming[0].title+(upcoming.length>1?' 외 '+(upcoming.length-1)+'건':''),icon:'/static/icon-192.png',badge:'/static/icon-192.png',tag:'unistarter-calendar',data:{url:'/?page=calendar'}};try{const reg=await navigator.serviceWorker.ready;await reg.showNotification(title,options)}catch(e){new Notification(title,options)}reminder.lastSent=key;store.set('reminder',reminder)}
+async function checkReminders(){if(!reminder.enabled||!('Notification' in window)||Notification.permission!=='granted')return;const matchedRecommendations=personalizedRecommendations().filter(item=>item.deadline).map(item=>({id:'recommend-'+item.id,title:item.title,start:item.deadline}));const upcoming=[...events,...matchedRecommendations].map(e=>({...e,days:daysUntil(eventDate(e))})).filter(e=>e.days>=0&&e.days<=reminder.days).sort((a,b)=>a.days-b.days);if(!upcoming.length)return;const today=new Date().toISOString().slice(0,10),key=today+':'+upcoming.map(e=>e.id).join(',');if(reminder.lastSent===key)return;const title=upcoming[0].days===0?'오늘의 학사일정':'다가오는 학사일정 D-'+upcoming[0].days;const options={body:upcoming[0].title+(upcoming.length>1?' 외 '+(upcoming.length-1)+'건':''),icon:'/static/icon-192.png',badge:'/static/icon-192.png',tag:'unistarter-calendar',data:{url:'/?page=calendar'}};try{const reg=await navigator.serviceWorker.ready;await reg.showNotification(title,options)}catch(e){new Notification(title,options)}reminder.lastSent=key;store.set('reminder',reminder)}
 el('notificationToggle').onclick=async()=>{if(!('Notification' in window)){showToast('이 브라우저는 알림을 지원하지 않아요');return}if(reminder.enabled){reminder.enabled=false;store.set('reminder',reminder);renderNotificationStatus();showToast('일정 알림을 껐어요');return}const permission=await Notification.requestPermission();if(permission==='granted'){reminder.enabled=true;reminder.lastSent='';store.set('reminder',reminder);renderNotificationStatus();showToast('일정 알림을 켰어요');checkReminders()}else{showToast('브라우저 설정에서 알림을 허용해 주세요')}};
 el('reminderDays').onchange=()=>{reminder.days=Number(el('reminderDays').value);reminder.lastSent='';store.set('reminder',reminder);renderNotificationStatus();checkReminders()};
 let deferredInstallPrompt=null;window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredInstallPrompt=e;el('installBanner').classList.add('show')});window.addEventListener('appinstalled',()=>{el('installBanner').classList.remove('show');showToast('UniStarter가 설치됐어요')});el('installButton').onclick=async()=>{if(deferredInstallPrompt){deferredInstallPrompt.prompt();await deferredInstallPrompt.userChoice;deferredInstallPrompt=null;el('installBanner').classList.remove('show')}else{showToast(/iphone|ipad/i.test(navigator.userAgent)?'공유 버튼에서 홈 화면에 추가를 선택하세요':'브라우저 메뉴에서 앱 설치를 선택하세요')}};
